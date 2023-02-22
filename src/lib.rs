@@ -126,8 +126,8 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::parse::{Nothing, Result};
-use syn::{parse_quote, Attribute, FnArg, Ident, ItemFn, PatType, ReturnType};
+use syn::parse::{Error, Nothing, Result};
+use syn::{parse_quote, Attribute, FnArg, Ident, ItemFn, Pat, PatType, ReturnType};
 
 #[proc_macro_attribute]
 pub fn no_panic(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -146,6 +146,12 @@ pub fn no_panic(args: TokenStream, input: TokenStream) -> TokenStream {
 fn parse(args: TokenStream2, input: TokenStream2) -> Result<ItemFn> {
     let function: ItemFn = syn::parse2(input)?;
     let _: Nothing = syn::parse2::<Nothing>(args)?;
+    if function.sig.asyncness.is_some() {
+        return Err(Error::new(
+            Span::call_site(),
+            "no_panic attribute on async fn is not supported",
+        ));
+    }
     Ok(function)
 }
 
@@ -156,12 +162,17 @@ fn expand_no_panic(mut function: ItemFn) -> TokenStream2 {
     for (i, input) in function.sig.inputs.iter_mut().enumerate() {
         let numbered = Ident::new(&format!("__arg{}", i), Span::call_site());
         match input {
-            FnArg::Typed(PatType { pat, .. }) => {
+            FnArg::Typed(PatType { pat, .. })
+                if match pat.as_ref() {
+                    Pat::Ident(pat) => pat.ident != "self",
+                    _ => true,
+                } =>
+            {
                 arg_pat.push(quote!(#pat));
                 arg_val.push(quote!(#numbered));
                 *pat = parse_quote!(mut #numbered);
             }
-            FnArg::Receiver(_) => {
+            FnArg::Typed(_) | FnArg::Receiver(_) => {
                 move_self = Some(quote! {
                     if false {
                         loop {}
