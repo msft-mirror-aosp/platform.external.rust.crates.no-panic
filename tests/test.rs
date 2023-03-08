@@ -178,6 +178,73 @@ assert_no_panic! {
             println!("{}", s.get_mut());
         }
     }
+
+    mod test_self_with_std_pin {
+        use std::pin::Pin;
+
+        pub struct S;
+
+        impl S {
+            #[no_panic]
+            fn f(mut self: Pin<&mut Self>) {
+                let _ = self.as_mut();
+            }
+        }
+
+        fn main() {}
+    }
+
+    mod test_deref_coercion {
+        #[no_panic]
+        pub fn f(s: &str) -> &str {
+            &s
+        }
+
+        fn main() {}
+    }
+
+    mod test_return_impl_trait {
+        use std::io;
+
+        #[no_panic]
+        pub fn f() -> io::Result<impl io::Write> {
+            Ok(Vec::new())
+        }
+
+        fn main() {}
+    }
+
+    mod test_conditional_return {
+        #[no_panic]
+        pub fn f(i: i32) {
+            if i < 0 {
+                return;
+            }
+        }
+
+        fn main() {
+            println!("{:?}", f(-1));
+        }
+    }
+
+    mod test_conditional_return_macro {
+        macro_rules! return_if_negative {
+            ($e:expr) => {
+                if $e < 0 {
+                    return;
+                }
+            }
+        }
+
+        #[no_panic]
+        pub fn f(i: i32) {
+            return_if_negative!(i);
+        }
+
+        fn main() {
+            println!("{:?}", f(-1));
+        }
+    }
 }
 
 assert_link_error! {
