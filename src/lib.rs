@@ -239,8 +239,7 @@ fn expand_no_panic(mut function: ItemFn) -> TokenStream2 {
     let has_inline = function
         .attrs
         .iter()
-        .flat_map(Attribute::parse_meta)
-        .any(|meta| meta.path().is_ident("inline"));
+        .any(|attr| attr.meta.path().is_ident("inline"));
     if !has_inline {
         function.attrs.push(parse_quote!(#[inline]));
     }
