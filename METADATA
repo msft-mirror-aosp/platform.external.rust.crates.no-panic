@@ -11,13 +11,13 @@ third_party {
   }
   url {
     type: ARCHIVE
-    value: "https://static.crates.io/crates/no-panic/no-panic-0.1.19.crate"
+    value: "https://static.crates.io/crates/no-panic/no-panic-0.1.21.crate"
   }
-  version: "0.1.19"
+  version: "0.1.21"
   license_type: NOTICE
   last_upgrade_date {
     year: 2023
-    month: 2
-    day: 16
+    month: 3
+    day: 6
   }
 }
