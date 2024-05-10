@@ -66,8 +66,6 @@
 //! The error is not stellar but notice the ERROR\[no-panic\] part at the end
 //! that provides the name of the offending function.
 //!
-//! *Compiler support: requires rustc 1.31+*
-//!
 //! <br>
 //!
 //! ## Caveats
@@ -119,7 +117,13 @@
 //! [Kixunil]: https://github.com/Kixunil
 //! [`dont_panic`]: https://github.com/Kixunil/dont_panic
 
-#![allow(clippy::doc_markdown, clippy::missing_panics_doc)]
+#![doc(html_root_url = "https://docs.rs/no-panic/0.1.26")]
+#![allow(
+    clippy::doc_markdown,
+    clippy::match_same_arms,
+    clippy::missing_panics_doc
+)]
+#![cfg_attr(all(test, exhaustive), feature(non_exhaustive_omitted_patterns_lint))]
 
 extern crate proc_macro;
 
@@ -127,7 +131,10 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::parse::{Error, Nothing, Result};
-use syn::{parse_quote, Attribute, FnArg, Ident, ItemFn, Pat, PatType, ReturnType};
+use syn::{
+    parse_quote, FnArg, GenericArgument, Ident, ItemFn, Pat, PatType, Path, PathArguments,
+    ReturnType, Token, Type, TypeInfer, TypeParamBound,
+};
 
 #[proc_macro_attribute]
 pub fn no_panic(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -153,6 +160,47 @@ fn parse(args: TokenStream2, input: TokenStream2) -> Result<ItemFn> {
         ));
     }
     Ok(function)
+}
+
+// Convert `Path<impl Trait>` to `Path<_>`
+fn make_impl_trait_wild(ret: &mut Type) {
+    match ret {
+        Type::ImplTrait(impl_trait) => {
+            *ret = Type::Infer(TypeInfer {
+                underscore_token: Token![_](impl_trait.impl_token.span),
+            });
+        }
+        Type::Array(ret) => make_impl_trait_wild(&mut ret.elem),
+        Type::Group(ret) => make_impl_trait_wild(&mut ret.elem),
+        Type::Paren(ret) => make_impl_trait_wild(&mut ret.elem),
+        Type::Path(ret) => make_impl_trait_wild_in_path(&mut ret.path),
+        Type::Ptr(ret) => make_impl_trait_wild(&mut ret.elem),
+        Type::Reference(ret) => make_impl_trait_wild(&mut ret.elem),
+        Type::Slice(ret) => make_impl_trait_wild(&mut ret.elem),
+        Type::TraitObject(ret) => {
+            for bound in &mut ret.bounds {
+                if let TypeParamBound::Trait(bound) = bound {
+                    make_impl_trait_wild_in_path(&mut bound.path);
+                }
+            }
+        }
+        Type::Tuple(ret) => ret.elems.iter_mut().for_each(make_impl_trait_wild),
+        Type::BareFn(_) | Type::Infer(_) | Type::Macro(_) | Type::Never(_) | Type::Verbatim(_) => {}
+        #[cfg_attr(all(test, exhaustive), deny(non_exhaustive_omitted_patterns))]
+        _ => {}
+    }
+}
+
+fn make_impl_trait_wild_in_path(path: &mut Path) {
+    for segment in &mut path.segments {
+        if let PathArguments::AngleBracketed(bracketed) = &mut segment.arguments {
+            for arg in &mut bracketed.args {
+                if let GenericArgument::Type(arg) = arg {
+                    make_impl_trait_wild(arg);
+                }
+            }
+        }
+    }
 }
 
 fn expand_no_panic(mut function: ItemFn) -> TokenStream2 {
@@ -189,15 +237,18 @@ fn expand_no_panic(mut function: ItemFn) -> TokenStream2 {
     let has_inline = function
         .attrs
         .iter()
-        .flat_map(Attribute::parse_meta)
-        .any(|meta| meta.path().is_ident("inline"));
+        .any(|attr| attr.path().is_ident("inline"));
     if !has_inline {
         function.attrs.push(parse_quote!(#[inline]));
     }
 
     let ret = match &function.sig.output {
         ReturnType::Default => quote!(-> ()),
-        output @ ReturnType::Type(..) => quote!(#output),
+        ReturnType::Type(arrow, output) => {
+            let mut output = output.clone();
+            make_impl_trait_wild(&mut output);
+            quote!(#arrow #output)
+        }
     };
     let stmts = function.block.stmts;
     let message = format!(
