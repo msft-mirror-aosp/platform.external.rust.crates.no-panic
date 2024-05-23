@@ -44,7 +44,7 @@ rust_proc_macro {
     crate_name: "no_panic",
     cargo_env_compat: true,
     cargo_pkg_version: "0.1.26",
-    srcs: ["src/lib.rs"],
+    crate_root: "src/lib.rs",
     edition: "2021",
     rustlibs: [
         "libproc_macro2",
